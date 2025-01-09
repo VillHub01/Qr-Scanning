@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Scanner</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #output {
+            position: absolute;
+            top: 10%;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 18px;
+            width: 60%;
+            max-height: 250px;
+            overflow-y: auto;
+            word-wrap: break-word;
+            box-sizing: border-box;
+            box-shadow: 0px 0px 15px rgba(0, 0, 0, 0.7);
+            text-align: left;
+            z-index: 1;
+            text-shadow: 2px 2px 2px black;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            width: 60%;
+            z-index: 2;
+        }
+
+        .control-item {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 50%;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.5);
+            cursor: pointer;
+        }
+
+        #scan-btn {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        #scan-btn i {
+            font-size: 30px;
+            color: white;
+        }
+
+        .loading-ring {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border: 4px solid #fff;
+            border-radius: 50%;
+            border-top: 4px solid transparent;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        #file-input input {
+            display: none;
+        }
+
+        #file-input label {
+            font-size: 24px;
+            color: white;
+            cursor: pointer;
+        }
+
+        .qr-data {
+            margin-top: 10px;
+        }
+
+        .qr-data strong {
+            font-size: 18px;
+        }
+
+        .copy-icon {
+            margin-left: 10px;
+            cursor: pointer;
+            color: #fff;
+        }
+
+        .copy-icon:hover {
+            color: #ffcc00;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 600px) {
+            .controls {
+                width: 80%;
+                flex-direction: column;
+                align-items: center;
+            }
+
+            #scan-btn {
+                width: 50px;
+                height: 50px;
+            }
+
+            #scan-btn i {
+                font-size: 25px;
+            }
+
+            #file-input label {
+                font-size: 20px;
+            }
+
+            #output {
+                width: 90%;
+                font-size: 16px;
+                max-height: 150px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="output">
+        <span class="close-btn" onclick="closeOutput()">×</span>
+        <div id="qr-data-output"></div>
+    </div>
+    <video id="scanner" autoplay></video>
+
+    <div class="controls">
+        <div class="control-item" id="file-input">
+            <label for="file-upload" class="fas fa-folder"></label>
+            <input type="file" id="file-upload" />
+        </div>
+
+        <div class="control-item" id="scan-btn">
+            <i class="fas fa-qrcode"></i>
+            <div class="loading-ring"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+    <script>
+        const video = document.getElementById('scanner');
+        const output = document.getElementById('output');
+        const qrDataOutput = document.getElementById('qr-data-output');
+        const scanBtn = document.getElementById('scan-btn');
+        const loadingRing = scanBtn.querySelector('.loading-ring');
+        const fileInput = document.getElementById('file-upload');
+        let isScanning = false;
+
+        // Access camera
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+            .then(stream => {
+                video.srcObject = stream;
+                video.play();
+            })
+            .catch(err => {
+                console.error("Error accessing camera: ", err);
+            });
+
+        // Scan button click event
+        scanBtn.addEventListener('click', () => {
+            isScanning = !isScanning;
+            if (isScanning) {
+                scanQRCode();
+                loadingRing.style.display = 'block'; // Show loading ring
+                video.pause(); // Stop camera when scanning is active
+            } else {
+                qrDataOutput.textContent = '';
+                loadingRing.style.display = 'none'; // Hide loading ring
+                video.play(); // Resume camera
+            }
+        });
+
+        // QR Scan function
+        function scanQRCode() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            function detect() {
+                if (!isScanning) return;
+
+                canvas.height = video.videoHeight;
+                canvas.width = video.videoWidth;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, canvas.width, canvas.height);
+
+                if (code) {
+                    let qrDataDiv;
+                    qrDataOutput.textContent = ''; // Clear previous data
+
+                    if (code.data.includes("WIFI")) {
+                        const wifiData = parseWiFiData(code.data);
+                        qrDataDiv = document.createElement('div');
+                        qrDataDiv.classList.add('qr-data');
+                        qrDataDiv.innerHTML = `
+                            <strong>QR DATA SCANNING (WiFi):</strong><br>
+                            <strong>SSID:</strong> ${wifiData.ssid || 'Not Available'}<br>
+                            <strong>PW:</strong> ${wifiData.password || 'Not Available'} 
+                            <i class="fas fa-copy copy-icon" onclick="copyPassword('${wifiData.password}')"></i><br>
+                            <strong>Keamanan:</strong> WPA<br>
+                            <strong>Lanjutan:</strong> TRUE
+                        `;
+                        qrDataOutput.appendChild(qrDataDiv);
+                    }
+                }
+
+                requestAnimationFrame(detect);
+            }
+
+            detect();
+        }
+
+        function copyPassword(password) {
+            navigator.clipboard.writeText(password).then(() => {
+                alert('Password copied to clipboard!');
+            }).catch(err => {
+                console.error('Error copying password: ', err);
+            });
+        }
+
+        function parseWiFiData(data) {
+            const parsedData = {
+                ssid: '',
+                password: ''
+            };
+
+            // Correctly parsing WiFi data
+            const wifiData = data.match(/WIFI:S:(.*?);T:(.*?);P:(.*?);/);
+            if (wifiData) {
+                parsedData.ssid = wifiData[1] || 'Not Available';
+                parsedData.password = wifiData[3] || 'Not Available';
+            }
+
+            return parsedData;
+        }
+
+        // Handle input file change
+        fileInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.src = e.target.result;
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const code = jsQR(imageData.data, canvas.width, canvas.height);
+
+                        if (code) {
+                            let qrDataDiv;
+                            qrDataOutput.textContent = ''; // Clear previous data
+
+                            if (code.data.includes("WIFI")) {
+                                const wifiData = parseWiFiData(code.data);
+                                qrDataDiv = document.createElement('div');
+                                qrDataDiv.classList.add('qr-data');
+                                qrDataDiv.innerHTML = `
+                                    <strong>QR DATA SCANNING (WiFi):</strong><br>
+                                    <strong>SSID:</strong> ${wifiData.ssid || 'Not Available'}<br>
+                                    <strong>PW:</strong> ${wifiData.password || 'Not Available'} 
+                                    <i class="fas fa-copy copy-icon" onclick="copyPassword('${wifiData.password}')"></i><br>
+                                    <strong>Keamanan:</strong> WPA<br>
+                                    <strong>Lanjutan:</strong> TRUE
+                                `;
+                                qrDataOutput.appendChild(qrDataDiv);
+                            }
+                        } else {
+                            qrDataOutput.textContent = "No QR Code found!";
+                        }
+                    };
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Close output function
+        function closeOutput() {
+            qrDataOutput.textContent = '';
+        }
+    </script>
+</body>
+</html>
